@@ -217,6 +217,10 @@
     font-size: var(--meta-size);
   }
 
+  .pane.focused header {
+    box-shadow: var(--head-mark-on);
+  }
+
   .pane.focused .title {
     color: var(--title-color-on);
   }

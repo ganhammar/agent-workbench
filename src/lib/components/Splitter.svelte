@@ -84,8 +84,21 @@
     cursor: col-resize;
     background: transparent;
     position: relative;
+    z-index: 1;
     touch-action: none;
     flex: none;
+  }
+
+  /* The grab zone, reaching past the bar's own width by the look's grab
+     so a one pixel bar is still something to take hold of. */
+  .splitter::before {
+    content: "";
+    position: absolute;
+    inset: 0 calc(-1 * var(--splitter-grab));
+  }
+
+  .splitter.horizontal::before {
+    inset: calc(-1 * var(--splitter-grab)) 0;
   }
 
   .splitter.horizontal {

@@ -86,8 +86,12 @@
 
   --splitter: var(--rule);
   --splitter-hover: var(--accent);
+  /* How far past its own width the resize bar can be grabbed. */
+  --splitter-grab: 0px;
 
   --head-rule: var(--rule);
+  /* What the focused pane's header wears, over what its edge wears. */
+  --head-mark-on: none;
 
   --title-align: space-between;
   --title-size: 10.5px;

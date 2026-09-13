@@ -12,7 +12,8 @@ System, light or dark. System follows the desktop and changes with it.
 
 Terminal or modern. Terminal is mono chrome, small capitals, square corners
 and panes drawn as boxes. Modern sets the chrome in the sans, in sentence
-case, with soft corners and the panes as cards on one canvas. Both use the
+case, with soft corners and the three panes flush on one surface, a single
+hairline between each pair and the sessions pane a shade below. Both use the
 same colours, so the appearance and the palette hold across either.
 
 ## Font
