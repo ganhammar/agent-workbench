@@ -53,6 +53,15 @@
     viewed,
   } from "$lib/sessions.svelte";
   import { attention, badge, followFocus } from "$lib/attention.svelte";
+  import {
+    PANE_MOTION,
+    PANE_TRAVEL,
+    arrive,
+    depart,
+    freeze,
+    reduced,
+    release,
+  } from "$lib/motion";
   import { cycle as cycleShell, ended as shellEnded, terminals } from "$lib/terminals.svelte";
   import { workspace } from "$lib/workspace.svelte";
   import {
@@ -187,9 +196,44 @@
 
   let reviewing = $derived(layout.mode === "reviewing");
 
+  let sessionsSlot = $state<HTMLDivElement | null>(null);
+
+  // The sessions pane is held at the box it had before the columns lose its
+  // width, so the panes that stay resolve in one layout and the agent's pty
+  // hears one size. A pre-effect is the last moment the box is still the
+  // pane's own; the transition that follows is paint over a grid that has
+  // already settled.
+  $effect.pre(() => {
+    const slot = sessionsSlot;
+    if (slot === null) return;
+    if (sessionsVisible()) release(slot);
+    else freeze(slot);
+  });
+
+  /** The panel is on its way out: out of the flow, still on screen. The
+      shells in it are never unmounted, so its going is a state of its own
+      rather than something a transition can hold on to. */
+  let terminalLeaving = $state(false);
+  let terminalWasShown = false;
+
+  $effect(() => {
+    const shown = terminalVisible();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    untrack(() => {
+      const going = terminalWasShown && !shown && !reduced();
+      terminalWasShown = shown;
+      terminalLeaving = going;
+      if (going) timer = setTimeout(() => (terminalLeaving = false), PANE_MOTION);
+    });
+    return () => clearTimeout(timer);
+  });
+
   let columns = $derived.by(() => {
     const cols: string[] = [];
-    if (sessionsVisible()) cols.push(`${layout.sessions}px`, "var(--splitter-w)");
+    // The sessions pane and the splitter beside it share one column: they
+    // leave and come back together, in one element, so the motion is on that
+    // element and never on the column.
+    if (sessionsVisible()) cols.push(`calc(${layout.sessions}px + var(--splitter-w))`);
     if (agentVisible()) cols.push("1fr");
     if (changesVisible()) {
       if (agentVisible()) cols.push("var(--splitter-w)");
@@ -311,7 +355,12 @@
 
 <svelte:window on:keydown={onKeydown} />
 
-<div class="frame" style:--controls-inset="{CONTROLS_INSET}px">
+<div
+  class="frame"
+  style:--controls-inset="{CONTROLS_INSET}px"
+  style:--pane-motion="{PANE_MOTION}ms"
+  style:--pane-travel="{PANE_TRAVEL}px"
+>
   <div class="stack" bind:clientHeight={stack}>
   <main
     class="shell"
@@ -320,18 +369,22 @@
     data-mode={layout.mode}
     bind:clientWidth={viewport}
   >
+    <!-- The pane and its splitter in one slot: the slot is what departs and
+         arrives, so the columns snap while it is still on screen. -->
     {#if sessionsVisible()}
-      <SessionsPane />
-      <Splitter
-        label="Resize projects and sessions"
-        onDelta={resizeSessions}
-        onReset={() => {
-          layout.sessions = DEFAULT.sessions;
-          applyLayout(viewport);
-          saveLayout();
-        }}
-        onCommit={saveLayout}
-      />
+      <div class="sessions-slot" bind:this={sessionsSlot} in:arrive out:depart>
+        <SessionsPane />
+        <Splitter
+          label="Resize projects and sessions"
+          onDelta={resizeSessions}
+          onReset={() => {
+            layout.sessions = DEFAULT.sessions;
+            applyLayout(viewport);
+            saveLayout();
+          }}
+          onCommit={saveLayout}
+        />
+      </div>
     {/if}
 
     <!-- Hidden rather than unmounted, always. Unmounting would destroy the
@@ -355,23 +408,27 @@
   </main>
 
   <!-- Hidden rather than unmounted, for the same reason as the agent: the
-       shells in it stay mounted, so hiding is free and showing is a fit. -->
-  {#if terminalVisible()}
-    <Splitter
-      label="Resize the terminal"
-      orientation="horizontal"
-      onDelta={resizeTerminal}
-      onReset={resetTerminal}
-      onCommit={saveLayout}
-    />
-  {/if}
+       shells in it stay mounted, so hiding is free and showing is a fit. The
+       panel and the bar above it go and come back together, and on the way
+       out the group leaves the stack's flow at once, so the panes have their
+       height back before it has finished falling. -->
   <div
-    class="terminal-slot"
-    class:hidden={!terminalVisible()}
-    style:height="{layout.terminal}px"
-    data-testid="terminal-slot"
+    class="terminal-group"
+    class:hidden={!terminalVisible() && !terminalLeaving}
+    class:leaving={terminalLeaving}
   >
-    <TerminalPanel />
+    {#if terminalVisible() || terminalLeaving}
+      <Splitter
+        label="Resize the terminal"
+        orientation="horizontal"
+        onDelta={resizeTerminal}
+        onReset={resetTerminal}
+        onCommit={saveLayout}
+      />
+    {/if}
+    <div class="terminal-slot" style:height="{layout.terminal}px" data-testid="terminal-slot">
+      <TerminalPanel />
+    </div>
   </div>
   </div>
 </div>
@@ -408,12 +465,18 @@
      rounded one on macOS. */
   .frame {
     --frame-pad: 10px;
+    /* The curve the panes leave and arrive on, cubic out, the one the
+       custom transitions use. */
+    --pane-ease: cubic-bezier(0.33, 1, 0.68, 1);
     height: calc(100vh - 26px);
     padding: var(--frame-pad);
     background: var(--bg);
   }
 
+  /* Positioned, so the terminal group has something to fall from once it is
+     out of the flow. */
   .stack {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -428,17 +491,71 @@
     align-items: stretch;
   }
 
+  /* The bar and the panel, one thing to show and to hide. */
+  .terminal-group {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    animation: rise var(--pane-motion) var(--pane-ease) both;
+  }
+
+  .terminal-group.hidden {
+    display: none;
+  }
+
+  /* On its way out it spans the stack's foot, where the panes have already
+     taken the height back. */
+  .terminal-group.leaving {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    animation: fall var(--pane-motion) var(--pane-ease) both;
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(var(--pane-travel));
+    }
+  }
+
+  @keyframes fall {
+    to {
+      opacity: 0;
+      transform: translateY(var(--pane-travel));
+    }
+  }
+
+  /* With as little movement as asked for, the panel is simply where it ends
+     up. The panes' own transitions answer the same question for themselves. */
+  @media (prefers-reduced-motion: reduce) {
+    .terminal-group,
+    .terminal-group.leaving {
+      animation: none;
+    }
+  }
+
   .terminal-slot {
     display: flex;
     flex: none;
     min-height: 0;
   }
 
-  .terminal-slot.hidden {
-    display: none;
+  .terminal-slot :global(.pane) {
+    flex: 1;
+    min-width: 0;
   }
 
-  .terminal-slot :global(.pane) {
+  /* The pane and the splitter beside it, in the width of one column. */
+  .sessions-slot {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .sessions-slot :global(.pane) {
     flex: 1;
     min-width: 0;
   }

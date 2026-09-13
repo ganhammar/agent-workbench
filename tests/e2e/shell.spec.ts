@@ -15,6 +15,28 @@ async function widthOf(page: Page, selector: string) {
 /** Cmd on macOS, Ctrl elsewhere. */
 const MOD = "ControlOrMeta";
 
+/** The columns the agent's terminal has fitted to, which is the pane's width
+    as the process is told it. Zero until a session is running. */
+function columnsOf(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __WORKBENCH_TERMINALS__?: Record<string, { cols: number }>;
+        }
+      ).__WORKBENCH_TERMINALS__?.["s1"]?.cols ?? 0,
+  );
+}
+
+/** How many sizes the ptys have been told, from the fake core: one per
+    layout a terminal was measured in and found to have changed. */
+async function timesResized(page: Page) {
+  const sent = await page.evaluate(
+    () => (window as unknown as { __resizes?: unknown[] }).__resizes ?? [],
+  );
+  return sent.length;
+}
+
 /** Tree rows carry the basename, and only the changes pane has a tree. */
 function row(page: Page, name: string) {
   return page.locator(TREE).getByText(name, { exact: true });
@@ -1179,6 +1201,50 @@ test.describe("the file viewer", () => {
     await expect(page.locator(SESSIONS)).toBeHidden();
     await expect(page.locator(AGENT)).toBeVisible();
     expect(await widthOf(page, AGENT)).toBeGreaterThanOrEqual(360);
+  });
+
+  // The sessions pane takes its time leaving; the columns do not wait for it.
+  // The agent's grid is measured once, on the frame the mode changed, and not
+  // again while the pane is still on its way out.
+  test("sees the sessions pane out without measuring the agent twice", async ({
+    page,
+  }) => {
+    await page.getByTestId("start-agent").click();
+    await expect.poll(() => columnsOf(page)).toBeGreaterThan(0);
+    const before = await columnsOf(page);
+    const told = await timesResized(page);
+
+    await row(page, "mod.rs").click();
+    await expect(page.locator(SESSIONS)).toHaveCount(0, { timeout: 1000 });
+
+    await expect.poll(() => columnsOf(page)).not.toBe(before);
+    const widened = await columnsOf(page);
+    await page.waitForTimeout(300);
+    expect(await columnsOf(page)).toBe(widened);
+    // Sampling the grid can miss a width it held for one frame; the pty is
+    // told about every one of them, so this is the count that settles it.
+    expect(await timesResized(page)).toBe(told + 1);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(SESSIONS)).toBeVisible();
+    await expect.poll(() => columnsOf(page)).toBe(before);
+  });
+
+  // Asked for as little movement as possible, there is none: what was on its
+  // way somewhere is simply there, in the frame the mode changed.
+  test("skips the motion when the system asks for less of it", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+
+    await row(page, "mod.rs").click();
+    expect(await page.locator(SESSIONS).count()).toBe(0);
+
+    const terminal = page.locator("section[data-pane='terminal']");
+    await page.keyboard.press(`${MOD}+j`);
+    await expect(terminal).toBeVisible();
+    await page.keyboard.press(`${MOD}+j`);
+    expect(await terminal.isVisible()).toBe(false);
   });
 
   test("closes on Escape and leaves the keyboard in the tree", async ({

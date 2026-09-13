@@ -141,7 +141,14 @@ export async function installFakeCore(
           const w = window as unknown as { __written?: [string, string][] };
           (w.__written ??= []).push([id, data]);
         },
-        resize: async () => {},
+        // Every size a pty is told, for a test to count the layouts its
+        // terminal was measured in: a fit that changes nothing sends nothing.
+        resize: async (id: string, cols: number, rows: number) => {
+          const w = window as unknown as {
+            __resizes?: { id: string; cols: number; rows: number }[];
+          };
+          (w.__resizes ??= []).push({ id, cols, rows });
+        },
         kill: async () => {},
         ptyCwd: async () => null,
         // Plugin sources, kept here: a URL with "good" in it adds a source

@@ -32,6 +32,28 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = vi.fn();
 }
 
+// jsdom animates nothing, so it has no Web Animations API. The panes and the
+// rows in them transition through it, and every transition asks the element
+// for an animation. These finish at once, which leaves the DOM in the state
+// the transition was on its way to: the one a test reads.
+if (!Element.prototype.animate) {
+  Element.prototype.animate = function () {
+    const animation = {
+      currentTime: 0,
+      playState: "finished",
+      effect: null,
+      onfinish: null as (() => void) | null,
+      cancel: () => {},
+      finish: () => {},
+      pause: () => {},
+      play: () => {},
+    };
+    queueMicrotask(() => animation.onfinish?.());
+    return animation as unknown as Animation;
+  } as typeof Element.prototype.animate;
+  Element.prototype.getAnimations = () => [];
+}
+
 // jsdom lays nothing out, so it has no ResizeObserver. Svelte's dimension
 // bindings watch elements with one; the values stay at zero here.
 if (!window.ResizeObserver) {

@@ -63,6 +63,25 @@ terminal comes back as it was, with nothing redrawn or rewrapped. The agent
 pane is hidden rather than unmounted for the same reason; unmounting would
 destroy the terminal.
 
+## What moves
+
+The columns never animate. When a pane goes, the panes that stay take their
+new widths in the same frame, and the pane itself is what you watch leave: it
+is held at the box it had, out of the layout's way, and slides off to the
+side it leaves by as it fades. It comes back the same way, in the width its
+column already has. The terminal panel does this vertically, falling away and
+rising back while the panes above it keep their new height from the first
+frame.
+
+A column that eased to its new width would be a new terminal size on every
+frame of the ease, with the redraw that costs. The pane moving on its own
+costs nothing. In the sessions pane a row that goes fades where it stands,
+and the rows below it close the gap rather than jump into it; a row that
+arrives fades in.
+
+None of this happens when the system asks for reduced motion. Panes and rows
+are then simply where they end up.
+
 ## The terminal panel
 
 Under either shape sits a strip for plain shells, the way an editor keeps a

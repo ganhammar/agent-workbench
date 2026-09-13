@@ -38,6 +38,8 @@
   import { openResume } from "$lib/resume.svelte";
   import { lastSegment } from "$lib/paths";
   import { focusPane, layout, type PaneId } from "$lib/layout.svelte";
+  import { flip } from "svelte/animate";
+  import { rowFade, rowMove } from "$lib/motion";
 
   let notOpen = $derived(workspace.recent.filter((path) => !isOpen(path)));
 
@@ -582,13 +584,20 @@
         </button>
       </div>
 
+      <!-- Each row is drawn in a slot of its own, which is what fades and
+           what moves: a row that goes leaves the ones below it to close the
+           gap rather than jump into it. -->
       {#each conductors() as session (session.key)}
-        {@render sessionRow(session)}
+        <div class="row-slot" animate:flip={rowMove()} in:rowFade|local out:rowFade|local>
+          {@render sessionRow(session)}
+        </div>
       {/each}
 
       {#if workspace.active === dir}
         {#each historyFor(dir) as transcript (transcript.id)}
-          {@render pastRow(dir, transcript)}
+          <div class="row-slot" animate:flip={rowMove()} in:rowFade|local out:rowFade|local>
+            {@render pastRow(dir, transcript)}
+          </div>
         {/each}
         {@render newSession(dir)}
       {/if}
@@ -617,7 +626,9 @@
       </div>
 
       {#each own as session (session.key)}
-        {@render sessionRow(session)}
+        <div class="row-slot" animate:flip={rowMove()} in:rowFade|local out:rowFade|local>
+          {@render sessionRow(session)}
+        </div>
       {/each}
 
       <!-- What an orchestrator started here stays in the project it runs in
@@ -659,6 +670,9 @@
               class:on={sessions.active === session.key}
               class:cursor={current === `session:${session.key}`}
               data-row="session:{session.key}"
+              animate:flip={rowMove()}
+              in:rowFade|local
+              out:rowFade|local
             >
               <button
                 class="row"
@@ -694,7 +708,9 @@
 
       {#if workspace.active === project.path}
         {#each historyFor(project.path) as transcript (transcript.id)}
-          {@render pastRow(project.path, transcript)}
+          <div class="row-slot" animate:flip={rowMove()} in:rowFade|local out:rowFade|local>
+            {@render pastRow(project.path, transcript)}
+          </div>
         {/each}
 
         {@render newSession(project.path)}
@@ -915,6 +931,8 @@
     align-items: center;
     margin: 0 var(--row-inset);
     border-radius: var(--radius);
+    /* The fill moves from row to row rather than jumping between them. */
+    transition: background-color 120ms ease;
   }
 
   .new-row {
@@ -1201,6 +1219,11 @@
   @media (prefers-reduced-motion: reduce) {
     .dot.working {
       animation: none;
+    }
+
+    .project,
+    .session {
+      transition: none;
     }
   }
 
